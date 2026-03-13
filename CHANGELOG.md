@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.4 - 2026-03-13
+
+### Fixed
+
+- Fixed the GitHub Actions macOS DMG build to clean up stale mounted volumes before creating the image, preventing intermittent `hdiutil: create failed - Resource busy` failures on tagged releases.
+- Fixed the DMG build script to use isolated temporary staging/output paths so concurrent or repeated builds do not reuse stale state.
+
 ## v0.1.3 - 2026-03-13
 
 ### Added
