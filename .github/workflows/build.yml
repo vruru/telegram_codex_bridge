@@ -1,0 +1,108 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test
+        run: go test ./...
+
+  release-archives:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install UPX
+        run: |
+          if command -v upx >/dev/null 2>&1; then
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl || sudo apt-get install -y upx
+      - name: Build cross-platform archives
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          COMMIT: ${{ github.sha }}
+          UPX_ENABLED: "true"
+        run: ./scripts/build-release-archives.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telegram-codex-bridge-release-archives
+          path: dist/releases/*.tar.gz
+
+  macos-app:
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build macOS app
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+          COMMIT: ${{ github.sha }}
+        run: ./scripts/build-macos-app.sh
+      - name: Build macOS dmg
+        run: ./scripts/build-macos-dmg.sh
+      - name: Zip macOS app bundle
+        run: ditto -c -k --sequesterRsrc --keepParent "dist/Telegram Codex Bridge.app" "dist/Telegram Codex Bridge.app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: telegram-codex-bridge-macos
+          path: |
+            dist/Telegram Codex Bridge.dmg
+            dist/Telegram Codex Bridge.app.zip
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs:
+      - release-archives
+      - macos-app
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: telegram-codex-bridge-release-archives
+          path: dist/release-assets/archives
+      - uses: actions/download-artifact@v4
+        with:
+          name: telegram-codex-bridge-macos
+          path: dist/release-assets/macos
+      - name: Publish drafted release
+        uses: release-drafter/release-drafter@v6
+        with:
+          publish: true
+          tag: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/release-assets/archives/*.tar.gz
+            dist/release-assets/macos/*.dmg
+            dist/release-assets/macos/*.zip

@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.local
+/tmp/
+/data/
+/bin/
+/dist/
+/bridge
+/coverage.out
+.gocache/
+.gomodcache/
