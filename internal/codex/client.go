@@ -52,11 +52,13 @@ type ExecutionStats struct {
 
 type Thread struct {
 	SessionID string
+	Provider  string
 	Name      string
 	Workspace string
 }
 
 type RunSettings struct {
+	Provider        string
 	Model           string
 	ReasoningEffort string
 	ServiceTier     string
@@ -78,6 +80,7 @@ type StartThreadRequest struct {
 
 type ResumeThreadResult struct {
 	SessionID string
+	Provider  string
 	Reply     string
 	Stats     ExecutionStats
 }
@@ -99,6 +102,10 @@ func NewCLIClient(cfg config.CodexConfig) *CLIClient {
 	return &CLIClient{cfg: cfg}
 }
 
+func (c *CLIClient) Provider() string {
+	return "codex"
+}
+
 func (c *CLIClient) WorkspaceRoot() string {
 	return c.cfg.WorkspaceRoot
 }
@@ -113,6 +120,11 @@ func (c *CLIClient) SetPermissionMode(mode string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cfg.PermissionMode = normalizePermissionMode(mode)
+}
+
+func (c *CLIClient) SettingsCatalogFor(provider string) (SettingsCatalog, error) {
+	_ = provider
+	return c.SettingsCatalog()
 }
 
 func (c *CLIClient) StartThread(ctx context.Context, req StartThreadRequest, handler StreamHandler) (StartThreadResult, error) {
@@ -138,6 +150,7 @@ func (c *CLIClient) StartThread(ctx context.Context, req StartThreadRequest, han
 	return StartThreadResult{
 		Thread: Thread{
 			SessionID: sessionID,
+			Provider:  c.Provider(),
 			Name:      req.Name,
 			Workspace: workspace,
 		},
@@ -167,6 +180,7 @@ func (c *CLIClient) ResumeThread(ctx context.Context, req ResumeThreadRequest, h
 
 	return ResumeThreadResult{
 		SessionID: sessionID,
+		Provider:  c.Provider(),
 		Reply:     reply,
 		Stats:     stats,
 	}, nil

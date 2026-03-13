@@ -1,6 +1,6 @@
 # Telegram Codex Bridge
 
-`telegram-codex-bridge` is a Go service that turns Telegram private chats and forum topics into a conversational front end for Codex threads.
+`telegram-codex-bridge` is a Go service that turns Telegram private chats and forum topics into a conversational front end for local coding-agent threads. Codex remains the primary backend, and Gemini CLI is available as an alternate provider.
 
 Release history: [CHANGELOG.md](CHANGELOG.md)
 
@@ -14,7 +14,9 @@ Release history: [CHANGELOG.md](CHANGELOG.md)
 - Auto-create and bind a dedicated workspace subdirectory for each new chat/topic thread
 - Auto-resume the same Codex thread on later messages
 - Codex `app-server` as the primary adapter, with CLI fallback when needed
-- Topic-aware control commands: `/help`, `/where`, `/version`, `/status`, `/limit`, `/lang`, `/model`, `/think`, `/speed`, `/permission`, `/threads`, `/new`, `/archive`, `/delete`
+- Optional Gemini CLI backend for manual provider switching when Codex is unavailable or quota-limited
+- Automatic Codex -> Gemini fallback for fresh thread creation when Codex is quota-limited or temporarily unavailable
+- Topic-aware control commands: `/help`, `/where`, `/version`, `/status`, `/limit`, `/lang`, `/provider`, `/model`, `/think`, `/speed`, `/permission`, `/threads`, `/new`, `/archive`, `/delete`
 - Telegram forum topic lifecycle sync for create/edit/close/reopen messages
 - Telegram native `typing` status while Codex is working; only final Codex output is sent as message text
 - Per-topic timing stats for new-thread and resume-thread runs
@@ -64,10 +66,12 @@ telegram-codex-bridge/
 1. Copy `.env.example` to `.env`.
 2. Fill in your Telegram bot token, allowed ids, and workspace path.
 3. Optional: set `BRIDGE_LANGUAGE=auto|zh|en` for the default UI/system-message language.
-4. Optional: set `CODEX_ADAPTER=auto|app-server|cli` to choose the Codex adapter.
-5. Optional: set `CODEX_PERMISSION_MODE=default|full-access` for the default Codex execution permission.
-6. Optional: set `BRIDGE_LOG_LEVEL=info|debug`, plus `BRIDGE_LOG_MAX_SIZE_MB` and `BRIDGE_LOG_MAX_BACKUPS` for rotating logs.
-7. Optional: set `BRIDGE_PREVENT_SLEEP=true|false` to keep the computer awake while Codex is actively processing a task.
+4. Optional: set `CODEX_PROVIDER=codex|gemini` to choose the backend CLI.
+5. Optional: when `CODEX_PROVIDER=codex`, set `CODEX_ADAPTER=auto|app-server|cli` to choose the Codex adapter.
+6. Optional: set `CODEX_PERMISSION_MODE=default|full-access` for the default execution permission.
+7. Optional: when `CODEX_PROVIDER=gemini`, set `GEMINI_DEFAULT_MODEL` and `GEMINI_MODELS` to control the `/model` menu.
+8. Optional: set `BRIDGE_LOG_LEVEL=info|debug`, plus `BRIDGE_LOG_MAX_SIZE_MB` and `BRIDGE_LOG_MAX_BACKUPS` for rotating logs.
+9. Optional: set `BRIDGE_PREVENT_SLEEP=true|false` to keep the computer awake while the active backend is processing a task.
 8. Run the bridge:
 
 ```bash

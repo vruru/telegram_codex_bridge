@@ -11,9 +11,20 @@ import (
 	"telegram-codex-bridge/internal/telegram"
 )
 
+var fetchUsageSnapshot = codex.FetchUsageSnapshot
+
 func (a *App) sendLimit(ctx context.Context, msg telegram.IncomingUpdate) error {
 	loc := a.catalogForCommand(ctx, msg)
-	snapshot, err := codex.FetchUsageSnapshot(ctx)
+	if a.currentProvider(ctx, msg) != "codex" {
+		return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
+			ChatID:           msg.ChatID,
+			TopicID:          msg.TopicID,
+			ReplyToMessageID: msg.MessageID,
+			Text:             loc.T("当前 provider 不支持限额查询。这个命令目前只支持 Codex。", "Quota lookup is not available for the current provider. This command currently only supports Codex."),
+		})
+	}
+
+	snapshot, err := fetchUsageSnapshot(ctx)
 	if err != nil {
 		return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
 			ChatID:           msg.ChatID,

@@ -9,9 +9,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"telegram-codex-bridge/internal/config"
 )
 
 type Health struct {
+	Provider         string `json:"provider"`
 	ConfiguredBinary string `json:"configured_binary"`
 	ResolvedBinary   string `json:"resolved_binary,omitempty"`
 	AppDetected      bool   `json:"app_detected"`
@@ -23,18 +26,24 @@ type Health struct {
 	Error            string `json:"error,omitempty"`
 }
 
-func CheckHealth(ctx context.Context, binary string) Health {
-	if strings.TrimSpace(binary) == "" {
-		binary = "codex"
+func CheckHealth(ctx context.Context, cfg config.CodexConfig) Health {
+	binary := strings.TrimSpace(cfg.BinaryPath)
+	if binary == "" {
+		if cfg.Provider == "gemini" {
+			binary = "gemini"
+		} else {
+			binary = "codex"
+		}
 	}
 
 	health := Health{
+		Provider:         cfg.Provider,
 		ConfiguredBinary: binary,
 	}
 
 	resolved, err := resolveBinary(binary)
 	if err != nil {
-		health.Error = fmt.Sprintf("codex binary not found: %v", err)
+		health.Error = fmt.Sprintf("%s binary not found: %v", providerDisplayName(cfg.Provider), err)
 		return health
 	}
 
@@ -44,6 +53,19 @@ func CheckHealth(ctx context.Context, binary string) Health {
 
 	if version, err := runTrimmed(ctx, resolved, "--version"); err == nil {
 		health.Version = version
+	}
+
+	if cfg.Provider == "gemini" {
+		promptOutput, err := runTrimmed(ctx, resolved, "-p", "Reply with exactly: ok", "--output-format", "json", "--approval-mode", "plan")
+		if err != nil {
+			health.LoginStatus = chooseNonEmpty(promptOutput, err.Error())
+			health.Error = chooseNonEmpty(health.Error, "gemini is installed but not ready")
+			return health
+		}
+		health.LoggedIn = true
+		health.LoginStatus = chooseNonEmpty(promptOutput, "ok")
+		health.Ready = true
+		return health
 	}
 
 	loginStatus, err := runTrimmed(ctx, resolved, "login", "status")
@@ -83,6 +105,15 @@ func resolveBinary(binary string) (string, error) {
 	}
 
 	return "", fmt.Errorf("exec: %q: executable file not found in $PATH", trimmed)
+}
+
+func providerDisplayName(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gemini":
+		return "gemini"
+	default:
+		return "codex"
+	}
 }
 
 func codexCandidates() []string {

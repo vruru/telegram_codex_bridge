@@ -30,9 +30,12 @@ type TelegramConfig struct {
 
 type CodexConfig struct {
 	BinaryPath     string
+	Provider       string
 	AdapterMode    string
 	WorkspaceRoot  string
 	PermissionMode string
+	GeminiModels   []string
+	GeminiDefault  string
 }
 
 type StoreConfig struct {
@@ -70,9 +73,12 @@ func LoadFromEnv() (Config, error) {
 		},
 		Codex: CodexConfig{
 			BinaryPath:     defaultString(strings.TrimSpace(os.Getenv("CODEX_BIN")), "codex"),
+			Provider:       normalizeProvider(strings.TrimSpace(os.Getenv("CODEX_PROVIDER"))),
 			AdapterMode:    normalizeAdapterMode(strings.TrimSpace(os.Getenv("CODEX_ADAPTER"))),
 			WorkspaceRoot:  defaultString(strings.TrimSpace(os.Getenv("CODEX_WORKSPACE_ROOT")), wd),
 			PermissionMode: normalizePermissionMode(strings.TrimSpace(os.Getenv("CODEX_PERMISSION_MODE"))),
+			GeminiModels:   parseStringList(defaultString(strings.TrimSpace(os.Getenv("GEMINI_MODELS")), "gemini-2.5-flash,gemini-2.5-flash-lite,gemini-2.5-pro,gemini-3-flash-preview,gemini-3.1-pro-preview")),
+			GeminiDefault:  defaultString(strings.TrimSpace(os.Getenv("GEMINI_DEFAULT_MODEL")), "gemini-2.5-flash"),
 		},
 		Store: StoreConfig{
 			StatePath: defaultString(strings.TrimSpace(os.Getenv("BRIDGE_STATE_PATH")), filepath.Join(wd, "data", "bridge.db")),
@@ -88,6 +94,10 @@ func LoadFromEnv() (Config, error) {
 		},
 		Language: normalizeLanguagePreference(strings.TrimSpace(os.Getenv("BRIDGE_LANGUAGE"))),
 		EnvPath:  filepath.Join(wd, ".env"),
+	}
+
+	if strings.TrimSpace(os.Getenv("CODEX_BIN")) == "" && cfg.Codex.Provider == "gemini" {
+		cfg.Codex.BinaryPath = "gemini"
 	}
 
 	if cfg.Telegram.BotToken == "" {
@@ -161,6 +171,38 @@ func parseInt64List(raw string) []int64 {
 	}
 
 	return values
+}
+
+func parseStringList(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, ok := seen[part]; ok {
+			continue
+		}
+		seen[part] = struct{}{}
+		values = append(values, part)
+	}
+	return values
+}
+
+func normalizeProvider(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "gemini", "gemini-cli", "gemini_cli":
+		return "gemini"
+	default:
+		return "codex"
+	}
 }
 
 func normalizeLanguagePreference(raw string) string {

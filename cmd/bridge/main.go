@@ -72,11 +72,11 @@ func runServe() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	codexHealth := codex.CheckHealth(context.Background(), cfg.Codex.BinaryPath)
+	codexHealth := codex.CheckHealth(context.Background(), cfg.Codex)
 	if codexHealth.Ready {
-		logger.Printf("codex ready binary=%s login=%s", codexHealth.ResolvedBinary, codexHealth.LoginStatus)
+		logger.Printf("%s ready binary=%s login=%s", codexHealth.Provider, codexHealth.ResolvedBinary, codexHealth.LoginStatus)
 	} else {
-		logger.Printf("codex not ready: %s", userVisibleCodexHealth(codexHealth))
+		logger.Printf("%s not ready: %s", codexHealth.Provider, userVisibleCodexHealth(codexHealth))
 	}
 
 	if err := application.Run(ctx); err != nil && err != context.Canceled {
@@ -92,5 +92,5 @@ func userVisibleCodexHealth(health codex.Health) string {
 	if health.LoginStatus != "" {
 		return health.LoginStatus
 	}
-	return "unknown codex health error"
+	return "unknown backend health error"
 }

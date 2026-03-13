@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.3 - 2026-03-13
+
+### Added
+
+- Added Gemini CLI as an alternate topic-level provider with a new `/provider [codex|gemini]` Telegram command.
+- Added provider-aware routing persistence so archived threads, resets, and quota checks continue using the correct backend.
+- Added SQLite regression coverage for topic preference persistence including the new provider column.
+
+### Fixed
+
+- Fixed `/provider` command parsing and Telegram command registration so it is handled by the bridge instead of being forwarded to Codex.
+- Fixed topic preference persistence for provider switches by correcting the SQLite insert column/value mismatch.
+- Fixed provider fallback behavior so resume failures no longer silently replace an existing Codex thread with a fresh Gemini thread.
+- Fixed runtime/app bundle drift where an older macOS menu bar app could overwrite the newer bridge binary in Application Support.
+
 ## v0.1.2 - 2026-03-13
 
 ### Added

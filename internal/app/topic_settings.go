@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"telegram-codex-bridge/internal/codex"
 	"telegram-codex-bridge/internal/store"
@@ -18,6 +19,85 @@ const (
 	settingsValueDefault   = "default"
 	settingsValueFast      = "fast"
 )
+
+func (a *App) handleProviderCommand(ctx context.Context, msg telegram.IncomingUpdate, args string) error {
+	loc := a.catalogForCommand(ctx, msg)
+	if strings.TrimSpace(args) == "" {
+		response := fmt.Sprintf(
+			"%s: %s\n%s",
+			loc.T("当前 provider", "Current provider"),
+			a.currentProvider(ctx, msg),
+			loc.T("可用命令：`/provider codex`、`/provider gemini`", "Available commands: `/provider codex`, `/provider gemini`"),
+		)
+		a.debugf("provider command chat=%d topic=%d action=show provider=%q", msg.ChatID, msg.TopicID, a.currentProvider(ctx, msg))
+		return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
+			ChatID:           msg.ChatID,
+			TopicID:          msg.TopicID,
+			ReplyToMessageID: msg.MessageID,
+			Text:             response,
+		})
+	}
+
+	requested := normalizeProviderArg(args)
+	if requested == "" {
+		a.debugf("provider command chat=%d topic=%d action=invalid raw_args=%q", msg.ChatID, msg.TopicID, args)
+		return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
+			ChatID:           msg.ChatID,
+			TopicID:          msg.TopicID,
+			ReplyToMessageID: msg.MessageID,
+			Text:             loc.T("只支持 `/provider codex` 或 `/provider gemini`。", "Supported values are `/provider codex` or `/provider gemini`."),
+		})
+	}
+
+	preferences, _, err := a.store.LoadTopicPreferences(ctx, msg.ChatID, msg.TopicID)
+	if err != nil {
+		return fmt.Errorf("load topic preferences: %w", err)
+	}
+	preferences.Provider = requested
+
+	catalog, err := a.codex.SettingsCatalogFor(requested)
+	if err != nil {
+		return err
+	}
+	preferences = sanitizeTopicPreferences(catalog, preferences)
+	if err := a.store.SaveTopicPreferences(ctx, msg.ChatID, msg.TopicID, preferences); err != nil {
+		return fmt.Errorf("save topic provider preference: %w", err)
+	}
+
+	binding, found, err := a.store.LookupBinding(ctx, msg.ChatID, msg.TopicID)
+	if err != nil {
+		return fmt.Errorf("lookup topic binding: %w", err)
+	}
+	if found && binding.ArchivedAt == nil && normalizeProviderArg(binding.Provider) != requested {
+		if err := a.store.ArchiveBinding(ctx, msg.ChatID, msg.TopicID, time.Now().UTC()); err != nil {
+			return fmt.Errorf("archive topic binding after provider switch: %w", err)
+		}
+		a.debugf("provider command chat=%d topic=%d action=switch provider=%q archived_old_binding=true", msg.ChatID, msg.TopicID, requested)
+		return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
+			ChatID:           msg.ChatID,
+			TopicID:          msg.TopicID,
+			ReplyToMessageID: msg.MessageID,
+			Text: fmt.Sprintf(
+				"%s `%s`。%s",
+				loc.T("当前话题 provider 已切换为", "This topic now uses provider"),
+				requested,
+				loc.T("旧线程已归档；下一条普通消息会自动用新 provider 新开线程。", "The old thread was archived; the next normal message will start a fresh thread with the new provider."),
+			),
+		})
+	}
+
+	a.debugf("provider command chat=%d topic=%d action=switch provider=%q archived_old_binding=false", msg.ChatID, msg.TopicID, requested)
+	return a.bot.SendMessage(ctx, telegram.OutgoingMessage{
+		ChatID:           msg.ChatID,
+		TopicID:          msg.TopicID,
+		ReplyToMessageID: msg.MessageID,
+		Text: fmt.Sprintf(
+			"%s `%s`。",
+			loc.T("当前话题 provider 已切换为", "This topic now uses provider"),
+			requested,
+		),
+	})
+}
 
 func (a *App) handleModelCommand(ctx context.Context, msg telegram.IncomingUpdate, args string) error {
 	if strings.TrimSpace(args) == "" {
@@ -354,14 +434,20 @@ func (a *App) presentSettingsMessage(ctx context.Context, msg telegram.IncomingU
 }
 
 func (a *App) topicSettings(ctx context.Context, msg telegram.IncomingUpdate) (codex.SettingsCatalog, store.TopicPreferences, codex.RunSettings, error) {
-	catalog, err := a.codex.SettingsCatalog()
-	if err != nil {
-		return codex.SettingsCatalog{}, store.TopicPreferences{}, codex.RunSettings{}, err
-	}
-
 	preferences, _, err := a.store.LoadTopicPreferences(ctx, msg.ChatID, msg.TopicID)
 	if err != nil {
 		return codex.SettingsCatalog{}, store.TopicPreferences{}, codex.RunSettings{}, fmt.Errorf("load topic preferences: %w", err)
+	}
+	preferences.Provider = normalizeProviderArg(preferences.Provider)
+
+	provider := preferences.Provider
+	if provider == "" {
+		provider = a.codex.Provider()
+	}
+
+	catalog, err := a.codex.SettingsCatalogFor(provider)
+	if err != nil {
+		return codex.SettingsCatalog{}, store.TopicPreferences{}, codex.RunSettings{}, err
 	}
 	preferences = sanitizeTopicPreferences(catalog, preferences)
 
@@ -374,6 +460,7 @@ func (a *App) topicSettings(ctx context.Context, msg telegram.IncomingUpdate) (c
 	}
 
 	return catalog, preferences, codex.RunSettings{
+		Provider:        provider,
 		Model:           model,
 		ReasoningEffort: effectiveReasoningEffort(catalog, preferences, model),
 		ServiceTier:     effectiveServiceTier(preferences, catalog.DefaultServiceTier),
@@ -381,6 +468,7 @@ func (a *App) topicSettings(ctx context.Context, msg telegram.IncomingUpdate) (c
 }
 
 func sanitizeTopicPreferences(catalog codex.SettingsCatalog, preferences store.TopicPreferences) store.TopicPreferences {
+	preferences.Provider = normalizeProviderArg(preferences.Provider)
 	if preferences.Model != "" {
 		if _, ok := catalog.FindModel(preferences.Model); !ok {
 			preferences.Model = ""
@@ -400,6 +488,26 @@ func sanitizeTopicPreferences(catalog codex.SettingsCatalog, preferences store.T
 	}
 
 	return preferences
+}
+
+func (a *App) currentProvider(ctx context.Context, msg telegram.IncomingUpdate) string {
+	if preferences, ok, err := a.store.LoadTopicPreferences(ctx, msg.ChatID, msg.TopicID); err == nil && ok {
+		if provider := normalizeProviderArg(preferences.Provider); provider != "" {
+			return provider
+		}
+	}
+	return a.codex.Provider()
+}
+
+func normalizeProviderArg(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "gemini", "gemini-cli", "gemini_cli":
+		return "gemini"
+	case "codex":
+		return "codex"
+	default:
+		return ""
+	}
 }
 
 func effectiveReasoningEffort(catalog codex.SettingsCatalog, preferences store.TopicPreferences, model string) string {

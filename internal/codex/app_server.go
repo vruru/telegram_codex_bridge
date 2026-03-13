@@ -44,6 +44,10 @@ func (c *AppServerClient) WorkspaceRoot() string {
 	return c.cfg.WorkspaceRoot
 }
 
+func (c *AppServerClient) Provider() string {
+	return "codex"
+}
+
 func (c *AppServerClient) PermissionMode() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -54,6 +58,11 @@ func (c *AppServerClient) SetPermissionMode(mode string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cfg.PermissionMode = normalizePermissionMode(mode)
+}
+
+func (c *AppServerClient) SettingsCatalogFor(provider string) (SettingsCatalog, error) {
+	_ = provider
+	return c.SettingsCatalog()
 }
 
 func (c *AppServerClient) StartThread(ctx context.Context, req StartThreadRequest, handler StreamHandler) (StartThreadResult, error) {
@@ -103,6 +112,7 @@ func (c *AppServerClient) StartThread(ctx context.Context, req StartThreadReques
 	return StartThreadResult{
 		Thread: Thread{
 			SessionID: threadID,
+			Provider:  c.Provider(),
 			Name:      req.Name,
 			Workspace: workspace,
 		},
@@ -157,6 +167,7 @@ func (c *AppServerClient) ResumeThread(ctx context.Context, req ResumeThreadRequ
 
 	return ResumeThreadResult{
 		SessionID: threadID,
+		Provider:  c.Provider(),
 		Reply:     reply,
 		Stats:     stats,
 	}, nil

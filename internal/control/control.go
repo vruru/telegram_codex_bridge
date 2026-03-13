@@ -13,6 +13,7 @@ import (
 
 	"telegram-codex-bridge/internal/buildinfo"
 	"telegram-codex-bridge/internal/codex"
+	"telegram-codex-bridge/internal/config"
 	"telegram-codex-bridge/internal/service"
 	"telegram-codex-bridge/internal/telegram"
 	"telegram-codex-bridge/internal/transcribe"
@@ -47,11 +48,12 @@ func Run(raw []string) error {
 		if err != nil {
 			return err
 		}
-		codexBinary := configuredCodexBinary(status.Paths.ProjectRoot)
+		codexCfg := configuredCodexConfig(status.Paths.ProjectRoot)
 		snapshot := combinedStatus{
 			Status:         status,
 			Version:        buildinfo.DisplayVersion(),
-			Codex:          codex.CheckHealth(ctx, codexBinary),
+			Codex:          codex.CheckHealth(ctx, codexCfg),
+			Provider:       codexCfg.Provider,
 			PermissionMode: configuredPermissionMode(status.Paths.ProjectRoot),
 		}
 		if args.json {
@@ -71,6 +73,9 @@ func Run(raw []string) error {
 		}
 		return nil
 	case "limits":
+		if configuredProvider(svc.Paths().ProjectRoot) != "codex" {
+			return fmt.Errorf("limits are only available for the codex provider")
+		}
 		limits, err := codex.FetchUsageSnapshot(ctx)
 		if err != nil {
 			if args.json {
@@ -83,7 +88,7 @@ func Run(raw []string) error {
 		}
 		return printLimits(limits)
 	case "codex":
-		health := codex.CheckHealth(ctx, configuredCodexBinary(svc.Paths().ProjectRoot))
+		health := codex.CheckHealth(ctx, configuredCodexConfig(svc.Paths().ProjectRoot))
 		if args.json {
 			return writeJSON(health)
 		}
@@ -163,6 +168,7 @@ type combinedStatus struct {
 	service.Status
 	Version        string       `json:"version"`
 	Codex          codex.Health `json:"codex"`
+	Provider       string       `json:"provider"`
 	PermissionMode string       `json:"permission_mode"`
 }
 
@@ -225,6 +231,7 @@ func printStatus(status combinedStatus) error {
 		fmt.Printf("description=%s\n", status.Description)
 	}
 	fmt.Printf("project_root=%s\n", status.Paths.ProjectRoot)
+	fmt.Printf("provider=%s\n", status.Provider)
 	if runtime.GOOS == "linux" {
 		fmt.Printf("systemd_user_dir=%s\n", status.Paths.LaunchAgentsDir)
 		fmt.Printf("systemd_unit=%s\n", status.Paths.PlistPath)
@@ -383,7 +390,29 @@ func configuredCodexBinary(projectRoot string) string {
 	if value, ok := configuredEnvValue(projectRoot, "CODEX_BIN"); ok && strings.TrimSpace(value) != "" {
 		return strings.TrimSpace(value)
 	}
+	if configuredProvider(projectRoot) == "gemini" {
+		return "gemini"
+	}
 	return "codex"
+}
+
+func configuredProvider(projectRoot string) string {
+	if value, ok := configuredEnvValue(projectRoot, "CODEX_PROVIDER"); ok {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "gemini", "gemini-cli", "gemini_cli":
+			return "gemini"
+		}
+	}
+	return "codex"
+}
+
+func configuredCodexConfig(projectRoot string) config.CodexConfig {
+	return config.CodexConfig{
+		BinaryPath:     configuredCodexBinary(projectRoot),
+		Provider:       configuredProvider(projectRoot),
+		PermissionMode: configuredPermissionMode(projectRoot),
+		WorkspaceRoot:  configuredWorkspaceRoot(projectRoot),
+	}
 }
 
 func configuredPermissionMode(projectRoot string) string {

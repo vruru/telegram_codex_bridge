@@ -140,6 +140,7 @@ func (a *App) handleUpdate(ctx context.Context, update telegram.IncomingUpdate) 
 
 		if len(update.Media) == 0 {
 			if handled, err := a.handleCommand(ctx, update, text); handled {
+				a.debugf("handled command chat=%d topic=%d text=%q err=%v", update.ChatID, update.TopicID, text, err)
 				if err != nil {
 					loc := a.catalogForCommand(ctx, update)
 					a.logger.Printf("failed to handle command chat=%d topic=%d: %v", update.ChatID, update.TopicID, err)
@@ -268,6 +269,8 @@ func (a *App) handleCommand(ctx context.Context, msg telegram.IncomingUpdate, te
 		return true, a.sendLimit(ctx, msg)
 	case "lang":
 		return true, a.handleLanguageCommand(ctx, msg, args)
+	case "provider":
+		return true, a.handleProviderCommand(ctx, msg, args)
 	case "model":
 		return true, a.handleModelCommand(ctx, msg, args)
 	case "think":
@@ -353,6 +356,7 @@ func helpText(loc i18n.Catalog) string {
 /status - 查看当前话题绑定的 Codex 会话
 /limit - 查看当前 Codex 限额信息
 /lang [auto|zh|en] - 查看或设置当前话题的语言
+/provider [codex|gemini] - 查看或设置当前话题后端
 /model [模型名] - 查看或设置当前话题模型
 /think [default|none|minimal|low|medium|high|xhigh] - 查看或设置思考等级
 /speed [default|fast] - 查看或设置速度模式
@@ -369,6 +373,7 @@ Available commands:
 /status - Show the Codex session bound to this topic
 /limit - Show the current Codex quota usage
 /lang [auto|zh|en] - Show or set the language for this topic
+/provider [codex|gemini] - Show or set the backend provider for this topic
 /model [model] - Show or set the model for this topic
 /think [default|none|minimal|low|medium|high|xhigh] - Show or set the reasoning level
 /speed [default|fast] - Show or set the speed mode
@@ -438,13 +443,15 @@ func (a *App) sendStatus(ctx context.Context, msg telegram.IncomingUpdate) error
 		TopicID:          msg.TopicID,
 		ReplyToMessageID: msg.MessageID,
 		Text: fmt.Sprintf(
-			"%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s",
+			"%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s\n%s=%s",
 			loc.T("状态", "status"),
 			status,
 			loc.T("会话", "session_id"),
 			emptyFallback(binding.SessionID, "<none>"),
 			loc.T("工作目录", "workspace"),
 			emptyFallback(binding.Workspace, "<none>"),
+			loc.T("provider", "provider"),
+			emptyFallback(normalizeProviderArg(binding.Provider), a.codex.Provider()),
 			loc.T("模型", "model"),
 			emptyFallback(effectiveSettings.Model, "<none>"),
 			loc.T("思考等级", "reasoning"),
@@ -508,6 +515,7 @@ func (a *App) archiveBinding(ctx context.Context, msg telegram.IncomingUpdate) (
 	}
 
 	if binding.SessionID != "" {
+		codex.RememberSessionProvider(a.codex, binding.SessionID, binding.Provider)
 		if err := a.codex.ArchiveThread(ctx, binding.SessionID); err != nil {
 			a.logger.Printf("archive codex thread %s: %v", binding.SessionID, err)
 		}
@@ -529,6 +537,7 @@ func (a *App) resetCurrentBinding(ctx context.Context, msg telegram.IncomingUpda
 			return fmt.Errorf("archive topic binding before reset: %w", err)
 		}
 		if binding.SessionID != "" {
+			codex.RememberSessionProvider(a.codex, binding.SessionID, binding.Provider)
 			if err := a.codex.ArchiveThread(ctx, binding.SessionID); err != nil {
 				a.logger.Printf("archive codex thread %s before reset: %v", binding.SessionID, err)
 			}
@@ -570,7 +579,7 @@ func parseCommand(text string) (string, string, bool) {
 	}
 
 	switch strings.ToLower(name) {
-	case "start", "help", "where", "version", "status", "limit", "lang", "model", "think", "speed", "permission", "threads", "new", "archive", "delete":
+	case "start", "help", "where", "version", "status", "limit", "lang", "provider", "model", "think", "speed", "permission", "threads", "new", "archive", "delete":
 	default:
 		return "", "", false
 	}
@@ -676,9 +685,10 @@ func (a *App) listThreads(ctx context.Context, msg telegram.IncomingUpdate) erro
 			status = loc.T("已归档", "archived")
 		}
 		lines = append(lines, fmt.Sprintf(
-			"- topic_id=%d | %s | %s | %s",
+			"- topic_id=%d | %s | %s | %s | %s",
 			binding.TopicID,
 			status,
+			emptyFallback(normalizeProviderArg(binding.Provider), a.codex.Provider()),
 			emptyFallback(binding.TopicTitle, "<no title>"),
 			shortSession(binding.SessionID),
 		))

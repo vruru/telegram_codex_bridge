@@ -6,6 +6,7 @@
 /bin/
 /dist/
 /bridge
+/bridgectl
 /coverage.out
 .gocache/
 .gomodcache/

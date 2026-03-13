@@ -62,14 +62,16 @@ func (s *SQLiteTopicStore) SaveBinding(ctx context.Context, binding TopicBinding
 			chat_id,
 			topic_id,
 			session_id,
+			provider,
 			topic_title,
 			workspace_root,
 			archived_at,
 			created_at,
 			updated_at
-		) values (?, ?, ?, ?, ?, ?, ?, ?)
+		) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		on conflict(chat_id, topic_id) do update set
 			session_id = excluded.session_id,
+			provider = excluded.provider,
 			topic_title = excluded.topic_title,
 			workspace_root = excluded.workspace_root,
 			archived_at = excluded.archived_at,
@@ -78,6 +80,7 @@ func (s *SQLiteTopicStore) SaveBinding(ctx context.Context, binding TopicBinding
 		binding.ChatID,
 		binding.TopicID,
 		binding.SessionID,
+		normalizeStoredProvider(binding.Provider),
 		binding.TopicTitle,
 		binding.Workspace,
 		archivedAt,
@@ -97,6 +100,7 @@ func (s *SQLiteTopicStore) LookupBinding(ctx context.Context, chatID, topicID in
 			chat_id,
 			topic_id,
 			session_id,
+			provider,
 			topic_title,
 			workspace_root,
 			archived_at,
@@ -126,6 +130,7 @@ func (s *SQLiteTopicStore) ListBindingsByChat(ctx context.Context, chatID int64)
 			chat_id,
 			topic_id,
 			session_id,
+			provider,
 			topic_title,
 			workspace_root,
 			archived_at,
@@ -186,6 +191,7 @@ func (s *SQLiteTopicStore) LoadTopicPreferences(ctx context.Context, chatID, top
 	row := s.db.QueryRowContext(ctx, `
 		select
 			model,
+			provider,
 			reasoning_effort,
 			service_tier,
 			updated_at
@@ -197,7 +203,7 @@ func (s *SQLiteTopicStore) LoadTopicPreferences(ctx context.Context, chatID, top
 		preferences TopicPreferences
 		updatedAt   string
 	)
-	err := row.Scan(&preferences.Model, &preferences.ReasoningEffort, &preferences.ServiceTier, &updatedAt)
+	err := row.Scan(&preferences.Model, &preferences.Provider, &preferences.ReasoningEffort, &preferences.ServiceTier, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return TopicPreferences{}, false, nil
 	}
@@ -217,7 +223,7 @@ func (s *SQLiteTopicStore) LoadTopicPreferences(ctx context.Context, chatID, top
 }
 
 func (s *SQLiteTopicStore) SaveTopicPreferences(ctx context.Context, chatID, topicID int64, preferences TopicPreferences) error {
-	if preferences.Model == "" && preferences.ReasoningEffort == "" && preferences.ServiceTier == "" {
+	if preferences.Provider == "" && preferences.Model == "" && preferences.ReasoningEffort == "" && preferences.ServiceTier == "" {
 		_, err := s.db.ExecContext(ctx, `
 			delete from topic_preferences
 			where chat_id = ? and topic_id = ?
@@ -235,16 +241,18 @@ func (s *SQLiteTopicStore) SaveTopicPreferences(ctx context.Context, chatID, top
 			chat_id,
 			topic_id,
 			model,
+			provider,
 			reasoning_effort,
 			service_tier,
 			updated_at
-		) values (?, ?, ?, ?, ?, ?)
+		) values (?, ?, ?, ?, ?, ?, ?)
 		on conflict(chat_id, topic_id) do update set
 			model = excluded.model,
+			provider = excluded.provider,
 			reasoning_effort = excluded.reasoning_effort,
 			service_tier = excluded.service_tier,
 			updated_at = excluded.updated_at
-	`, chatID, topicID, preferences.Model, preferences.ReasoningEffort, preferences.ServiceTier, now.Format(time.RFC3339Nano))
+	`, chatID, topicID, preferences.Model, preferences.Provider, preferences.ReasoningEffort, preferences.ServiceTier, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("save topic preferences: %w", err)
 	}
@@ -359,6 +367,7 @@ func (s *SQLiteTopicStore) initSchema() error {
 			chat_id integer not null,
 			topic_id integer not null,
 			session_id text not null,
+			provider text not null default 'codex',
 			topic_title text not null,
 			workspace_root text not null,
 			archived_at text,
@@ -369,6 +378,9 @@ func (s *SQLiteTopicStore) initSchema() error {
 	`)
 	if err != nil {
 		return fmt.Errorf("initialize topic_bindings schema: %w", err)
+	}
+	if err := s.ensureColumn("topic_bindings", "provider", "text not null default 'codex'"); err != nil {
+		return fmt.Errorf("initialize topic_bindings.provider schema: %w", err)
 	}
 
 	_, err = s.db.Exec(`
@@ -389,6 +401,7 @@ func (s *SQLiteTopicStore) initSchema() error {
 			chat_id integer not null,
 			topic_id integer not null,
 			model text not null default '',
+			provider text not null default '',
 			reasoning_effort text not null default '',
 			service_tier text not null default '',
 			updated_at text not null,
@@ -397,6 +410,9 @@ func (s *SQLiteTopicStore) initSchema() error {
 	`)
 	if err != nil {
 		return fmt.Errorf("initialize topic_preferences schema: %w", err)
+	}
+	if err := s.ensureColumn("topic_preferences", "provider", "text not null default ''"); err != nil {
+		return fmt.Errorf("initialize topic_preferences.provider schema: %w", err)
 	}
 
 	_, err = s.db.Exec(`
@@ -428,6 +444,7 @@ func scanBinding(scanner rowScanner) (TopicBinding, error) {
 		&binding.ChatID,
 		&binding.TopicID,
 		&binding.SessionID,
+		&binding.Provider,
 		&binding.TopicTitle,
 		&binding.Workspace,
 		&archivedAtRaw,
@@ -457,5 +474,54 @@ func scanBinding(scanner rowScanner) (TopicBinding, error) {
 		binding.ArchivedAt = &archivedAt
 	}
 
+	binding.Provider = normalizeStoredProvider(binding.Provider)
 	return binding, nil
+}
+
+func (s *SQLiteTopicStore) ensureColumn(table, column, columnDef string) error {
+	exists, err := s.hasColumn(table, column)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	_, err = s.db.Exec(fmt.Sprintf("alter table %s add column %s %s", table, column, columnDef))
+	return err
+}
+
+func (s *SQLiteTopicStore) hasColumn(table, column string) (bool, error) {
+	rows, err := s.db.Query(fmt.Sprintf("pragma table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			colType    string
+			notNull    int
+			defaultV   any
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultV, &primaryKey); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(column)) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+func normalizeStoredProvider(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "gemini":
+		return "gemini"
+	default:
+		return "codex"
+	}
 }

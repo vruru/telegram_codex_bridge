@@ -14,10 +14,12 @@ var (
 )
 
 type BridgeClient interface {
+	Provider() string
 	WorkspaceRoot() string
 	PermissionMode() string
 	SetPermissionMode(mode string)
 	SettingsCatalog() (SettingsCatalog, error)
+	SettingsCatalogFor(provider string) (SettingsCatalog, error)
 	StartThread(ctx context.Context, req StartThreadRequest, handler StreamHandler) (StartThreadResult, error)
 	ResumeThread(ctx context.Context, req ResumeThreadRequest, handler StreamHandler) (ResumeThreadResult, error)
 	SteerThread(ctx context.Context, req SteerThreadRequest) error
@@ -32,21 +34,16 @@ type SteerThreadRequest struct {
 }
 
 func NewClient(cfg config.CodexConfig) BridgeClient {
-	cli := NewCLIClient(cfg)
-
-	switch cfg.AdapterMode {
-	case "cli":
-		return cli
-	case "app-server":
-		return NewFallbackClient(NewAppServerClient(cfg, cli), cli)
-	default:
-		return NewFallbackClient(NewAppServerClient(cfg, cli), cli)
-	}
+	return NewProviderRouter(cfg)
 }
 
 type FallbackClient struct {
 	primary  BridgeClient
 	fallback BridgeClient
+}
+
+type sessionProviderRememberer interface {
+	RememberSessionProvider(sessionID, provider string)
 }
 
 func NewFallbackClient(primary, fallback BridgeClient) *FallbackClient {
@@ -58,6 +55,10 @@ func NewFallbackClient(primary, fallback BridgeClient) *FallbackClient {
 
 func (c *FallbackClient) WorkspaceRoot() string {
 	return c.primary.WorkspaceRoot()
+}
+
+func (c *FallbackClient) Provider() string {
+	return c.primary.Provider()
 }
 
 func (c *FallbackClient) PermissionMode() string {
@@ -77,6 +78,11 @@ func (c *FallbackClient) SettingsCatalog() (SettingsCatalog, error) {
 		return c.fallback.SettingsCatalog()
 	}
 	return result, err
+}
+
+func (c *FallbackClient) SettingsCatalogFor(provider string) (SettingsCatalog, error) {
+	_ = provider
+	return c.SettingsCatalog()
 }
 
 func (c *FallbackClient) StartThread(ctx context.Context, req StartThreadRequest, handler StreamHandler) (StartThreadResult, error) {
@@ -109,6 +115,23 @@ func (c *FallbackClient) ArchiveThread(ctx context.Context, sessionID string) er
 		return c.fallback.ArchiveThread(ctx, sessionID)
 	}
 	return err
+}
+
+func (c *FallbackClient) RememberSessionProvider(sessionID, provider string) {
+	if rememberer, ok := c.primary.(sessionProviderRememberer); ok {
+		rememberer.RememberSessionProvider(sessionID, provider)
+	}
+	if rememberer, ok := c.fallback.(sessionProviderRememberer); ok {
+		rememberer.RememberSessionProvider(sessionID, provider)
+	}
+}
+
+func RememberSessionProvider(client BridgeClient, sessionID, provider string) {
+	rememberer, ok := client.(sessionProviderRememberer)
+	if !ok {
+		return
+	}
+	rememberer.RememberSessionProvider(sessionID, provider)
 }
 
 func shouldFallback(err error) bool {

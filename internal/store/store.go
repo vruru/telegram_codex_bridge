@@ -12,6 +12,7 @@ type TopicBinding struct {
 	ChatID     int64
 	TopicID    int64
 	SessionID  string
+	Provider   string
 	TopicTitle string
 	Workspace  string
 	ArchivedAt *time.Time
@@ -20,6 +21,7 @@ type TopicBinding struct {
 }
 
 type TopicPreferences struct {
+	Provider        string
 	Model           string
 	ReasoningEffort string
 	ServiceTier     string
@@ -135,7 +137,7 @@ func (s *MemoryTopicStore) SaveTopicPreferences(ctx context.Context, chatID, top
 	defer s.mu.Unlock()
 
 	k := key(chatID, topicID)
-	if preferences.Model == "" && preferences.ReasoningEffort == "" && preferences.ServiceTier == "" {
+	if preferences.Provider == "" && preferences.Model == "" && preferences.ReasoningEffort == "" && preferences.ServiceTier == "" {
 		delete(s.preferencesByID, k)
 		return nil
 	}

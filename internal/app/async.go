@@ -45,6 +45,7 @@ type topicStats struct {
 type executionResult struct {
 	Reply            string
 	SessionID        string
+	Provider         string
 	Stats            codex.ExecutionStats
 	Artifacts        []generatedArtifact
 	SkippedArtifacts []string
@@ -272,6 +273,15 @@ func (a *App) executeUpdate(ctx context.Context, msg telegram.IncomingUpdate, st
 		return executionResult{}, err
 	}
 
+	_, _, settings, err := a.topicSettings(ctx, msg)
+	if err != nil {
+		return executionResult{}, fmt.Errorf("resolve topic settings: %w", err)
+	}
+	if found && binding.Provider != "" && normalizeProviderArg(binding.Provider) != settings.Provider {
+		found = false
+		binding = store.TopicBinding{}
+	}
+
 	if !found || binding.SessionID == "" {
 		result, err := a.createThread(ctx, msg, streamHandler)
 		if err != nil {
@@ -284,6 +294,7 @@ func (a *App) executeUpdate(ctx context.Context, msg telegram.IncomingUpdate, st
 		return executionResult{
 			Reply:            result.Reply,
 			SessionID:        result.Thread.SessionID,
+			Provider:         result.Thread.Provider,
 			Stats:            result.Stats,
 			Artifacts:        mergeGeneratedArtifactsWithReply(msg.PreparedWorkspace, result.Reply, artifacts),
 			SkippedArtifacts: skipped,
@@ -301,6 +312,7 @@ func (a *App) executeUpdate(ctx context.Context, msg telegram.IncomingUpdate, st
 	return executionResult{
 		Reply:            result.Reply,
 		SessionID:        result.SessionID,
+		Provider:         result.Provider,
 		Stats:            result.Stats,
 		Artifacts:        mergeGeneratedArtifactsWithReply(msg.PreparedWorkspace, result.Reply, artifacts),
 		SkippedArtifacts: skipped,
@@ -337,6 +349,7 @@ func (a *App) createThread(ctx context.Context, msg telegram.IncomingUpdate, str
 		ChatID:     msg.ChatID,
 		TopicID:    msg.TopicID,
 		SessionID:  result.Thread.SessionID,
+		Provider:   result.Thread.Provider,
 		TopicTitle: topicTitleOrDefault(msg),
 		Workspace:  result.Thread.Workspace,
 	}); err != nil {
@@ -373,6 +386,7 @@ func (a *App) continueThread(
 	}
 
 	binding.SessionID = result.SessionID
+	binding.Provider = result.Provider
 	if err := a.store.SaveBinding(ctx, binding); err != nil {
 		return codex.ResumeThreadResult{}, fmt.Errorf("refresh topic binding: %w", err)
 	}
