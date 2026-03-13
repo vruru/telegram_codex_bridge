@@ -120,15 +120,17 @@ jobs:
             -f target_commitish="$TARGET_SHA" \
             --jq .body > "$notes_file"
 
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+          if gh release view "$TAG_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "$TAG_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$TAG_NAME" \
               --notes-file "$notes_file" \
               --draft=false \
               --latest
-            gh release upload "$TAG_NAME" "${assets[@]}" --clobber
+            gh release upload "$TAG_NAME" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
           else
             gh release create "$TAG_NAME" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
               --title "$TAG_NAME" \
               --notes-file "$notes_file" \
               --latest

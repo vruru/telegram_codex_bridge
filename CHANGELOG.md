@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.6 - 2026-03-13
+
+### Fixed
+
+- Fixed the GitHub Actions release publishing step to use explicit repository targeting for `gh release` commands, so tag builds can publish releases without requiring a checked-out `.git` directory in the release job.
+
 ## v0.1.5 - 2026-03-13
 
 ### Fixed
