@@ -194,9 +194,8 @@ The repository now includes [build.yml](.github/workflows/build.yml), which will
 - install UPX on the Linux build runner and pack Linux release binaries before archiving
 - automatically create a GitHub Release when you push a `v*` tag
 - attach the generated Linux/macOS archives and macOS installer assets to that Release
-- keep a rolling draft release updated on `main/master` via [release-drafter.yml](.github/release-drafter.yml)
-- publish the drafted release body when you push a `v*` tag
-- use [release.yml](.github/release.yml) and [pull_request_template.md](.github/pull_request_template.md) to make changelogs and issue links more consistent
+- generate release notes from GitHub's native release notes API using [release.yml](.github/release.yml)
+- use [pull_request_template.md](.github/pull_request_template.md) to make changelogs and issue links more consistent
 
 Binary and app versions are derived from the git tag at build time. GitHub Releases remains the source of truth for published versions, while release history also lives in [CHANGELOG.md](CHANGELOG.md).
 

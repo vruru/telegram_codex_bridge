@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.1.5 - 2026-03-13
+
+### Fixed
+
+- Upgraded the GitHub Actions `checkout`, `setup-go`, `upload-artifact`, and `download-artifact` steps to current Node 24-based releases.
+- Replaced the Node 20-based `release-drafter` and `softprops/action-gh-release` release steps with native `gh` CLI release publishing.
+- Removed the separate release-drafter workflow so regular `main` pushes no longer emit Node 20 deprecation warnings.
+
 ## v0.1.4 - 2026-03-13
 
 ### Fixed
