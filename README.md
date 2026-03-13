@@ -199,6 +199,12 @@ The repository now includes [build.yml](.github/workflows/build.yml), which will
 
 Binary and app versions are derived from the git tag at build time. GitHub Releases remains the source of truth for published versions, while release history also lives in [CHANGELOG.md](CHANGELOG.md).
 
+Release policy:
+
+- Publish fixes under a new `v*` tag instead of reusing or force-updating an existing release tag.
+- Treat an already-published GitHub Release as immutable for normal maintenance.
+- If the release pipeline itself needs a fix, merge that fix first and cut the next patch version.
+
 ## Next milestones
 
 1. Approval prompts bridged into Telegram action buttons
