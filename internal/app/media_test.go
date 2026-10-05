@@ -154,7 +154,7 @@ func TestDetectGeneratedArtifactsFindsModifiedInboxAttachment(t *testing.T) {
 func TestGeneratedArtifactsFromReplyFindsLocalLinks(t *testing.T) {
 	t.Parallel()
 
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "workspace with spaces")
 	imagePath := filepath.Join(root, ".telegram", "inbox", "66", "photo_italy_v5.jpg")
 	if err := os.MkdirAll(filepath.Dir(imagePath), 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", imagePath, err)
@@ -179,13 +179,13 @@ func TestGeneratedArtifactsFromReplyFindsLocalLinks(t *testing.T) {
 func TestSanitizeReplyLocalPathsStripsAbsolutePaths(t *testing.T) {
 	t.Parallel()
 
-	reply := "文件在 [photo_italy_v5.jpg](/Users/example/telegram_codex_bridge/private/.telegram/inbox/66/photo_italy_v5.jpg)。\n另一个路径是 /Users/example/telegram_codex_bridge/private/render.png"
+	reply := "文件在 [photo_italy_v5.jpg](/Users/example/telegram_codex_bridge/private/.telegram/inbox/66/photo_italy_v5.jpg)。\n另一个路径是 /Users/example/telegram_codex_bridge/private/render.png\n[spaced.png](/Users/example/New project/private/spaced.png)"
 	got := sanitizeReplyLocalPaths(reply)
 
 	if strings.Contains(got, "/Users/") {
 		t.Fatalf("expected local paths to be removed, got %q", got)
 	}
-	for _, want := range []string{"photo_italy_v5.jpg", "render.png"} {
+	for _, want := range []string{"photo_italy_v5.jpg", "render.png", "spaced.png"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected %q in sanitized reply, got %q", want, got)
 		}

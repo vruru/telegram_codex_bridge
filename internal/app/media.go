@@ -42,7 +42,7 @@ type workspaceFileInfo struct {
 	ModTime time.Time
 }
 
-var markdownLocalLinkPattern = regexp.MustCompile(`\[(?P<label>[^\]]+)\]\((?P<path>/[^)\s]+)\)`)
+var markdownLocalLinkPattern = regexp.MustCompile(`\[(?P<label>[^\]]+)\]\((?P<path>/[^)\r\n]+)\)`)
 var bareLocalPathPattern = regexp.MustCompile(`(?m)(^|[\s(])(?P<path>/Users/[^\s)]+)`)
 
 func (a *App) prepareIncomingUpdate(ctx context.Context, msg telegram.IncomingUpdate) (telegram.IncomingUpdate, error) {
