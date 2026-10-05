@@ -82,3 +82,17 @@ The lock graph also updates these transitive modules:
 Swift app/icon generation, DMG packaging, and UPX compression were skipped. Cross-compiled Linux binaries were built but not executed on this macOS host. Existing installed binaries were not redeployed.
 
 The in-repository temporary directory exposed an existing test failure for local Markdown file links containing spaces. The shared link matcher now accepts spaces within a single-line path, and regression tests cover artifact discovery and absolute-path sanitization. The full test suite was rerun after the fix.
+
+### Follow-up Verification (2026-10-05)
+
+The skipped checks above describe the initial dependency audit. Later that day,
+the pinned commit `a28d01a1b760171448fbe9303c135d8d5d1e548a` passed the native
+macOS app build, including Swift compilation and icon generation. The embedded
+bridge matched the built binary and reported `version=dev+a28d01a`,
+`commit=a28d01a`. Go tests/vet and Linux amd64/arm64 cross-builds also passed.
+The follow-up evidence is recorded in `follow-up-result.md` and
+`build-and-document-validation.json` under the LocalOps directory referenced in
+the [deployment process](deployment-process.md#current-deployment-status-verified-2026-10-05).
+
+This follow-up did not verify DMG packaging, UPX compression or execution of the
+Linux binaries. No runtime was installed, started or redeployed.
