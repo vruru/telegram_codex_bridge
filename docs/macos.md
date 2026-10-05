@@ -1,92 +1,90 @@
 # macOS Operation
 
-This repository now ships two macOS-facing entrypoints:
+The repository provides the unified bridge binary and a native Swift menu bar app. The menu app manages its own runtime directory and offers first-run setup, status, quota display, service controls, logs, and local Whisper controls.
 
-- `bin/telegram-codex-bridge`: the Telegram <-> Codex bridge service
-- `dist/Telegram Codex Bridge.app`: the installable menu bar app
+## Build and installation
 
-The menu bar app is now the preferred operator experience.
-
-## Build
+Source builds require Go **1.26.6 or newer** and Xcode Command Line Tools with `swiftc`, `swift`, and `iconutil`. Run from the repository root:
 
 ```bash
+go mod download
 ./scripts/build-macos-app.sh
-```
-
-That script will:
-
-1. build `bin/telegram-codex-bridge`
-2. compile the menu bar app
-3. package `dist/Telegram Codex Bridge.app`
-
-To build a drag-and-drop DMG:
-
-```bash
-./scripts/build-macos-dmg.sh
-```
-
-## Menu bar app
-
-Launch it with:
-
-```bash
 open "./dist/Telegram Codex Bridge.app"
 ```
 
-The menu bar app can:
+The script produces `bin/telegram-codex-bridge` and `dist/Telegram Codex Bridge.app` for the current host architecture. The app bundle embeds the unified bridge executable.
 
-- perform first-run setup when configuration is missing
-- validate Telegram bot token
-- validate Codex installation/login state
-- store config and runtime files in `~/Library/Application Support/TelegramCodexBridge`
-- copy the embedded bridge binaries into that runtime directory
-- show the current bridge status
-- start, stop, and restart the bridge
-- toggle bridge auto-start at login
-- open the runtime folder
-- open stdout and stderr logs
+To create a drag-and-drop installer, with `python3` and `hdiutil` available:
 
-## launchd
+```bash
+mkdir -p dist
+./scripts/build-macos-dmg.sh
+```
 
-`telegram-codex-bridge` manages the user LaunchAgent:
+The DMG script rebuilds the app and writes `dist/Telegram Codex Bridge.dmg`. The explicit directory creation is needed on a clean checkout: the script allocates its staging directory before invoking the app build.
 
-- plist path: `~/Library/LaunchAgents/com.telegramcodex.bridge.plist`
-- runtime root: `~/Library/Application Support/TelegramCodexBridge`
-- stdout log: `~/Library/Application Support/TelegramCodexBridge/data/logs/bridge.stdout.log`
-- stderr log: `~/Library/Application Support/TelegramCodexBridge/data/logs/bridge.stderr.log`
+Published app ZIPs and DMGs can also be installed in Applications. Cross-compiled macOS command-line binaries are built separately by `scripts/build-release-archives.sh`; those archives do not contain the Swift app.
 
-The main bridge log now rotates automatically. By default:
+## First-run setup and runtime
 
-- max size per file: `20 MB`
-- retained backups: `5`
-- level: `info`
+At launch, the app copies the embedded bridge into its runtime `bin/` directory and removes the legacy `bridgectl` binary if present. Missing or incomplete configuration opens setup for the Telegram token, workspace root, and at least one user or chat allowlist entry. The app validates the token and backend readiness.
 
-For active debugging, you can raise verbosity with `BRIDGE_LOG_LEVEL=debug`.
+| File | App-managed location |
+| :--- | :--- |
+| Runtime root | `~/Library/Application Support/TelegramCodexBridge` |
+| Bridge binary | `<runtime-root>/bin/telegram-codex-bridge` |
+| Configuration | `<runtime-root>/.env` |
+| Default SQLite state | `<runtime-root>/data/bridge.db` |
+| Default main log | `<runtime-root>/data/logs/bridge.stdout.log` |
+| Service stderr | `<runtime-root>/data/logs/bridge.stderr.log` |
+| LaunchAgent | `~/Library/LaunchAgents/com.telegramcodex.bridge.plist` |
 
-Common commands:
+`TELEGRAM_CODEX_BRIDGE_ROOT` can override the Swift app's runtime root when supplied in the app's startup environment. The Go configuration loader does not read this variable.
+
+The app's configuration is separate from the repository's `.env`. Saving menu setup rewrites `.env` using only its UI-supported keys: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ALLOWED_CHAT_IDS`, `CODEX_WORKSPACE_ROOT`, `CODEX_BIN`, `BRIDGE_LANGUAGE`, and `CODEX_PERMISSION_MODE`. Reapply advanced settings such as provider or log overrides after saving setup if needed. The complete configuration name list is in [README](../README.md#environment-variable-names).
+
+## launchd and command-line control
+
+Management commands infer the runtime root from the executable layout, rather than the current directory. To inspect and control the app-managed runtime:
+
+```bash
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" paths --json
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" status --json
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" start
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" stop
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" restart
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" set-autostart on
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" set-autostart off
+```
+
+`start` installs/loads the LaunchAgent as needed and starts the bridge. Autostart at login is controlled separately through the menu or `set-autostart`. `remove` unloads the service and removes its plist while retaining runtime data.
+
+For a repository-based runtime, configure the repository's `.env` and use its binary:
 
 ```bash
 ./bin/telegram-codex-bridge status
-./bin/telegram-codex-bridge status --json
 ./bin/telegram-codex-bridge start
-./bin/telegram-codex-bridge stop
-./bin/telegram-codex-bridge restart
-./bin/telegram-codex-bridge set-autostart on
-./bin/telegram-codex-bridge set-autostart off
-./bin/telegram-codex-bridge remove
 ```
 
-## Important note
+Both choices use the same `com.telegramcodex.bridge` LaunchAgent label for the user. Choose one runtime root to manage. `--project-root` may explicitly select a root after the management subcommand, but that root must contain `bin/telegram-codex-bridge`.
 
-Do not run both:
+Foreground serving uses the current working directory; the serving command does not use `--project-root` to change configuration roots. Stop a manually started process before switching to launchd. Avoid concurrent pollers for the same token. Status can report a matching bridge process running outside launchd.
 
-- a manually started `telegram-codex-bridge`
-- and a launchd-managed `telegram-codex-bridge`
+## Local Whisper
 
-at the same time, or Telegram long polling will conflict.
+The menu app can check and install optional local transcription. Install `ffmpeg` first and provide Python 3 with venv/pip support. The helper reuses an already-ready installation; otherwise it installs `openai-whisper` under `<runtime-root>/data/whisper-venv`.
 
-`telegram-codex-bridge status` detects this and reports `running outside launchd` when it finds a manual process.
+Use the app runtime's binary for the same installation:
 
-The setup window only appears when configuration is missing or incomplete. After setup is saved, the app returns to menu-bar-only behavior.
+```bash
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" whisper-status
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" install-whisper
+```
 
-When `BRIDGE_PREVENT_SLEEP=true`, the bridge will try to keep macOS awake with `caffeinate` while a Codex task is running. This protects long-running tasks from sleeping mid-run, but it cannot wake a machine that is already asleep before a Telegram message arrives.
+Voice/audio transcription uses the fixed `base` model; the first run may download model files. Failed transcription is logged and attachment processing continues with the original files. See [README](../README.md#optional-local-whisper-transcription).
+
+## Logs and sleep
+
+The internal main log rotates according to `BRIDGE_LOG_MAX_SIZE_MB` and `BRIDGE_LOG_MAX_BACKUPS`. `BRIDGE_LOG_LEVEL` controls verbosity. The LaunchAgent's separate stderr file is outside that rotation; `BRIDGE_LOG_PATH` can move the application's main log.
+
+When `BRIDGE_PREVENT_SLEEP` enables sleep prevention, the bridge uses `caffeinate` during backend tasks. A host that is asleep before a message arrives cannot respond; task sleep prevention does not wake it or keep it awake while idle.

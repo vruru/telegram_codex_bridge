@@ -1,101 +1,140 @@
 # Telegram Codex Bridge
 
-`telegram-codex-bridge` is a Go service that turns Telegram private chats and forum topics into a conversational front end for local coding-agent threads. Codex remains the primary backend, and Gemini CLI is available as an alternate provider.
+`telegram-codex-bridge` is a local Go service that turns Telegram private chats and forum topics into a conversational front end for coding-agent threads. Codex is the primary execution backend; Gemini CLI is an optional alternate provider. A native Swift menu bar app provides setup and service controls on macOS.
 
-Release history: [CHANGELOG.md](CHANGELOG.md)
+## Features
 
-## What works now
+- Telegram Bot API long polling, with user and group allowlists and a persisted update offset.
+- Persistent routing from each chat/topic to a backend session and a reusable workspace directory.
+- Codex app-server integration, CLI fallback, and follow-up steering during active turns.
+- Topic-level provider, model, reasoning, service-tier, and Chinese/English language controls.
+- Incoming photos, documents, voice notes, and audio files; optional local Whisper transcription.
+- Final text replies, typing indicators, and automatic return of generated images, audio, and common document files.
+- Unified service management for macOS `launchd` and Linux `systemd --user`.
+- macOS menu bar setup, quota display, restart, logs, autostart toggle, and Whisper installation controls.
 
-- Telegram long polling over the Bot API
-- User/chat allowlists
-- `chat_id + topic_id -> Codex session_id` routing in SQLite
-- Persistent Telegram update offsets across restarts
-- Auto-create a Codex thread on the first normal message in a chat or topic
-- Auto-create and bind a dedicated workspace subdirectory for each new chat/topic thread
-- Auto-resume the same Codex thread on later messages
-- Codex `app-server` as the primary adapter, with CLI fallback when needed
-- Optional Gemini CLI backend for manual provider switching when Codex is unavailable or quota-limited
-- Automatic Codex -> Gemini fallback for fresh thread creation when Codex is quota-limited or temporarily unavailable
-- Topic-aware control commands: `/help`, `/where`, `/version`, `/status`, `/limit`, `/lang`, `/provider`, `/model`, `/think`, `/speed`, `/permission`, `/threads`, `/new`, `/archive`, `/delete`
-- Telegram forum topic lifecycle sync for create/edit/close/reopen messages
-- Telegram native `typing` status while Codex is working; only final Codex output is sent as message text
-- Per-topic timing stats for new-thread and resume-thread runs
-- Localized zh/en Telegram responses, plus a per-topic `/lang auto|zh|en` override
-- Official `turn/steer` follow-up steering when an app-server turn is active
-- Telegram attachment input for photos, documents, voice notes, and audio files
-- Automatic download of incoming attachments into the bound topic workspace
-- Image attachments forwarded to Codex as native image inputs
-- Document, voice, and audio attachments forwarded to Codex with saved file paths and caption context
-- Automatic return of generated images, audio files, and common document outputs back to Telegram
-- macOS `launchd` management through the unified `telegram-codex-bridge` binary
-- Linux `systemd --user` management through the same unified `telegram-codex-bridge` binary
-- macOS menu bar app with first-run setup, configurable UI language, quota display, restart, logs, and auto-start toggle
-- GitHub Actions workflow for tests, release archives, and macOS app artifacts
-
-## Core model
-
-- One Telegram private chat maps to one Codex thread
-- One Telegram forum topic maps to one Codex thread
-- The first thread for a chat/topic gets its own workspace folder under `CODEX_WORKSPACE_ROOT`
-- Later runs in the same chat/topic keep reusing that same workspace folder
-- Codex runs inside the per-topic folder but is additionally allowed to access the parent project root for cross-thread collaboration when needed
-- Routing is keyed by `chat_id + topic_id`
-- Private chat `topic_id=0` and group `topic_id=0` do not conflict because `chat_id` is part of the key
-
-## Project layout
+## Architecture
 
 ```text
-telegram-codex-bridge/
-├── bin/                         # built binaries
-├── cmd/bridge/                  # unified bridge + management entrypoint
-├── docs/                        # architecture, macOS, and Linux operation notes
-├── internal/app/                # orchestration and message queueing
-├── internal/control/            # cross-platform management subcommands
-├── internal/codex/              # Codex app-server adapter, CLI fallback, and stream parsing
-├── internal/config/             # env/config parsing
-├── internal/macos/              # launchd helpers
-├── internal/service/            # launchd/systemd service adapters
-├── internal/store/              # SQLite topic-thread mapping
-├── internal/telegram/           # Telegram transport
-├── macos/BridgeStatusBarApp/    # menu bar app source
-└── scripts/                     # build helpers
+Telegram Bot API <-> internal/telegram <-> internal/app topic workers
+                                             |
+                                             +-> internal/store (SQLite)
+                                             +-> internal/codex provider router
+                                             |     +-> Codex app-server / Codex CLI
+                                             |     +-> Gemini CLI
+                                             +-> workspace files / optional Whisper
 ```
 
-## Quick start
+Routing is keyed by `chat_id + topic_id`; chats without a forum topic use `topic_id=0`. The first ordinary message creates a backend thread and a workspace subdirectory under `CODEX_WORKSPACE_ROOT`. Later messages resume that thread. `/new` replaces the binding while reusing the existing workspace.
 
-1. Copy `.env.example` to `.env`.
-2. Fill in your Telegram bot token, allowed ids, and workspace path.
-3. Optional: set `BRIDGE_LANGUAGE=auto|zh|en` for the default UI/system-message language.
-4. Optional: set `CODEX_PROVIDER=codex|gemini` to choose the backend CLI.
-5. Optional: when `CODEX_PROVIDER=codex`, set `CODEX_ADAPTER=auto|app-server|cli` to choose the Codex adapter.
-6. Optional: set `CODEX_PERMISSION_MODE=default|full-access` for the default execution permission.
-7. Optional: when `CODEX_PROVIDER=gemini`, set `GEMINI_DEFAULT_MODEL` and `GEMINI_MODELS` to control the `/model` menu.
-8. Optional: set `BRIDGE_LOG_LEVEL=info|debug`, plus `BRIDGE_LOG_MAX_SIZE_MB` and `BRIDGE_LOG_MAX_BACKUPS` for rotating logs.
-9. Optional: set `BRIDGE_PREVENT_SLEEP=true|false` to keep the computer awake while the active backend is processing a task.
-8. Run the bridge:
+Each topic has a worker that serializes its messages; different topics can run independently. Follow-ups use Codex `turn/steer` when an app-server turn is active, otherwise they are queued and merged. Telegram receives typing indicators and the final answer rather than the backend event stream.
+
+Codex runs through a locally spawned app-server using loopback WebSocket JSON-RPC, with `codex exec` / `codex exec resume` as fallback for adapter availability and supported fallback errors. Selecting the app-server adapter still allows this CLI fallback. Automatic cross-provider fallback to Gemini applies only when starting a fresh Codex thread and encountering specific quota, rate-limit, capacity, or login errors. Existing threads are not migrated.
+
+The Codex CLI adapter adds the shared workspace root with `--add-dir`; the app-server adapter passes the topic directory as its working directory and applies its sandbox settings. Workspace folders organize work; they are not a strict isolation boundary.
+
+See [docs/architecture.md](docs/architecture.md) for the components, persistence tables, and lifecycle behavior.
+
+## Prerequisites
+
+- Go **1.26.6 or newer** for source builds, as required by [go.mod](go.mod). The SQLite driver is pure Go; no separate SQLite installation is needed.
+- A Telegram bot token and the user/group IDs you intend to allow.
+- An installed and authenticated Codex CLI for Codex operation. Gemini CLI must be separately installed and authenticated if used.
+- An existing, writable workspace root and network access to Telegram and the selected backend.
+- On macOS, Xcode Command Line Tools (`swiftc`, `swift`, `iconutil`) for the app build. DMG packaging also needs `python3` and `hdiutil`.
+
+## Local setup, build, and run
+
+Run these commands from the repository root:
 
 ```bash
-go run ./cmd/bridge
+go mod download
+cp .env.example .env
+mkdir -p bin
+go build -o bin/telegram-codex-bridge ./cmd/bridge
 ```
 
-## macOS build and control
+Edit `.env` privately before starting: configure `TELEGRAM_BOT_TOKEN`, the allowlists, and `CODEX_WORKSPACE_ROOT` for your intended workspace. The workspace directory must already exist. Only the bot token is mandatory in the configuration loader; explicitly configure access restrictions for the intended audience.
 
-Build the binaries and menu bar app:
+`TELEGRAM_ALLOWED_USER_IDS` applies to senders in both private and group chats. `TELEGRAM_ALLOWED_CHAT_IDS` applies to shared/group chats; private chats bypass that list. An empty list leaves its corresponding restriction open. For ordinary group messages, the bot must be able to read them; startup logs warn when Telegram reports that it cannot.
+
+The service reads `.env` from its current working directory. The parser accepts simple `KEY=VALUE` lines, skips comments and blank lines, and performs no shell evaluation or quote removal. Already-exported environment variables take precedence.
+
+Run in the foreground:
 
 ```bash
-./scripts/build-macos-app.sh
+./bin/telegram-codex-bridge serve
 ```
 
-This produces:
+Invoking the binary without arguments also serves. `go run ./cmd/bridge` is available for development. Foreground serving uses the current directory for configuration and default state/log paths; `--project-root` is a management option and does not select the foreground serving directory.
 
-- `bin/telegram-codex-bridge`
-- `dist/Telegram Codex Bridge.app`
-
-Useful commands:
+Development checks:
 
 ```bash
-./bin/telegram-codex-bridge status
+go test ./...
+go vet ./...
+```
+
+## Environment variable names
+
+The bridge configuration names are listed below. Keep tokens, IDs, and machine-specific configuration in the local `.env`.
+
+| Variable Name | Meaning | Required by Loader |
+| :--- | :--- | :--- |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot authentication token. | **Yes** |
+| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated list of allowed Telegram User IDs. | No |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Comma-separated list of allowed Telegram Chat IDs (groups). | No |
+| `TELEGRAM_API_BASE_URL` | Custom Telegram API base URL. | No |
+| `TELEGRAM_POLL_TIMEOUT_SECONDS` | Timeout for long-polling updates. | No |
+| `CODEX_BIN` | Path to the binary for the selected default provider. | No |
+| `CODEX_PROVIDER` | Selected default backend provider. | No |
+| `CODEX_ADAPTER` | Adapter mode for Codex. | No |
+| `CODEX_WORKSPACE_ROOT` | Root directory for generated workspaces. | No |
+| `CODEX_PERMISSION_MODE` | Permission mode for future executions. | No |
+| `GEMINI_DEFAULT_MODEL` | Default Gemini model identifier. | No |
+| `GEMINI_MODELS` | List of allowed Gemini models. | No |
+| `BRIDGE_STATE_PATH` | Path to the SQLite database file. | No |
+| `BRIDGE_LANGUAGE` | Default response language. | No |
+| `BRIDGE_LOG_PATH` | Path to the log file. | No |
+| `BRIDGE_LOG_LEVEL` | Logging verbosity. | No |
+| `BRIDGE_LOG_MAX_SIZE_MB` | Max size of log file before rotation. | No |
+| `BRIDGE_LOG_MAX_BACKUPS` | Number of rotated log files to keep. | No |
+| `BRIDGE_PREVENT_SLEEP` | Enable system sleep prevention during tasks. | No |
+| `TELEGRAM_CODEX_BRIDGE_ROOT` | **Swift-only** override for bridge root path. | No |
+
+`GEMINI_MODELS` is comma-separated. `CODEX_BIN` overrides the CLI for the selected default provider; the alternate provider uses its conventional executable name. `TELEGRAM_CODEX_BRIDGE_ROOT` is read by the Swift app at startup, not by the Go configuration loader.
+
+## Telegram commands
+
+| Command | Description |
+| :--- | :--- |
+| `/start`, `/help` | Show available commands. |
+| `/where` | Show chat/topic/user identifiers. |
+| `/version` | Show bridge version. |
+| `/status` | Show current session and provider status. |
+| `/limit` | Show Codex quota usage. |
+| `/lang` | Show or set the topic language. |
+| `/provider` | Switch provider. Old binding archived; next message starts new thread. |
+| `/model` | Show the model menu or set a provider-supported model. |
+| `/think` | Show or set the reasoning level. |
+| `/speed` | Show or set the service tier supported by the provider. |
+| `/permission` | Set global permission mode (updates `.env`). |
+| `/threads` | List stored bindings in this chat. |
+| `/new` | Start new session. Optional immediate prompt; otherwise next ordinary message. Reuses existing workspace. |
+| `/archive` | Archive current session binding. |
+| `/delete` | Archive the binding, then delete the Telegram forum topic via the Bot API. |
+
+Language, provider, model, reasoning, and service-tier preferences are per topic. `/permission` changes the global execution permission for future runs and writes `CODEX_PERMISSION_MODE` to `.env`. Switching providers archives the previous binding and starts a fresh thread on the next ordinary message.
+
+## Service management
+
+Both supported platforms use the unified binary:
+
+```bash
+./bin/telegram-codex-bridge paths --json
+./bin/telegram-codex-bridge status --json
 ./bin/telegram-codex-bridge version
+./bin/telegram-codex-bridge codex
 ./bin/telegram-codex-bridge limits
 ./bin/telegram-codex-bridge start
 ./bin/telegram-codex-bridge stop
@@ -104,110 +143,105 @@ Useful commands:
 ./bin/telegram-codex-bridge set-autostart off
 ```
 
-Open the menu bar app:
+`codex` checks the configured backend; `limits` is Codex-only. `help` lists commands, `remove` removes the service registration, and `stop-unmanaged` stops a detected unmanaged bridge process.
 
-```bash
-open "./dist/Telegram Codex Bridge.app"
-```
+Management resolves the runtime root from the executable layout: `<runtime-root>/bin/telegram-codex-bridge`. Use `--project-root` after the management subcommand when choosing a different root; that root must contain the expected binary. `start` writes the service registration and starts it; enabling autostart is a separate operation.
 
-Or build a drag-and-drop DMG:
+## Linux deployment and release archives
 
-```bash
-./scripts/build-macos-dmg.sh
-```
+Build a native binary using the local build command above, then manage it with `start` and `set-autostart`. The generated user unit is `~/.config/systemd/user/com.telegramcodex.bridge.service`; its working directory is the runtime root, with `.env` and persistent `data/` beneath it.
 
-More details: [docs/macos.md](docs/macos.md)
-
-## Linux build and control
-
-Build release archives for Linux and macOS binaries:
+To build all supported release archives:
 
 ```bash
 ./scripts/build-release-archives.sh
 ```
 
-This produces `.tar.gz` archives for:
+This writes archives for Linux and macOS, each on amd64 and arm64, under `dist/releases/`. Filenames follow `telegram-codex-bridge_<version>_<os>_<arch>.tar.gz`. Each archive contains only the executable and `README.md`; it does not create a local `bin/` or include `.env.example`.
 
-- `linux/amd64`
-- `linux/arm64`
-- `darwin/amd64`
-- `darwin/arm64`
+For an archive installation, extract the matching executable into `<runtime-root>/bin/telegram-codex-bridge`, obtain the configuration template from the repository, and configure `<runtime-root>/.env`. Install and authenticate the backend CLI for the service user before starting.
 
-When `UPX_ENABLED=true`, Linux release binaries are additionally packed with UPX before archiving. macOS app bundles and the `.dmg` are not UPX-packed; the `.dmg` is already a compressed disk image, and UPX on macOS app executables is more likely to hurt compatibility than help.
-
-On Debian or other systemd-based Linux distributions, the unified binary can manage a user service:
+The Linux unit searches `~/.local/bin`, `/usr/local/bin`, `/usr/bin`, and `/bin`. Use an absolute `CODEX_BIN` path if the chosen backend is installed elsewhere. To keep an enabled user service available after boot without an interactive login, enable lingering:
 
 ```bash
-./bin/telegram-codex-bridge status
-./bin/telegram-codex-bridge start
-./bin/telegram-codex-bridge stop
-./bin/telegram-codex-bridge restart
-./bin/telegram-codex-bridge set-autostart on
-./bin/telegram-codex-bridge set-autostart off
+sudo loginctl enable-linger "$USER"
 ```
 
-Linux service details: [docs/linux.md](docs/linux.md)
+Release-script overrides are `DIST_DIR`, `VERSION`, `COMMIT`, `UPX_ENABLED`, and `UPX_ARGS`. UPX packing is opt-in and applies only to Linux binaries; if UPX is unavailable, the script skips packing. See [docs/linux.md](docs/linux.md).
 
-## Operational notes
+## macOS app and deployment
 
-The menu bar app now uses `~/Library/Application Support/TelegramCodexBridge` as its runtime root. On first launch, it will:
+Build and open the menu bar app:
 
-- copy the embedded bridge binaries into that runtime directory
-- check whether configuration exists
-- validate Codex availability and login
-- ask for Telegram token, workspace, and allowlist values if config is missing
+```bash
+./scripts/build-macos-app.sh
+open "./dist/Telegram Codex Bridge.app"
+```
 
-Avoid running two bridge instances at once. If you already started `telegram-codex-bridge` manually, stop that process before switching to the menu bar app or `launchd`. `telegram-codex-bridge status` will warn when it detects a bridge process running outside `launchd`.
+The build produces `bin/telegram-codex-bridge` and `dist/Telegram Codex Bridge.app` for the host architecture. To build a drag-and-drop DMG:
 
-Because this bridge runs locally beside Codex, a sleeping machine cannot answer Telegram messages. For 24/7 availability:
+```bash
+mkdir -p dist
+./scripts/build-macos-dmg.sh
+```
 
-- keep the macOS host awake
-- or run the bridge on a Linux machine that does not auto-sleep
-- or use a dedicated Debian service user with `systemd --user` and lingering enabled
+The DMG script rebuilds the app and writes `dist/Telegram Codex Bridge.dmg`. Creating `dist/` first is needed on a clean checkout because its staging directory is allocated before the app build.
 
-When `BRIDGE_PREVENT_SLEEP=true`, the bridge will also try to prevent the machine from sleeping while a Codex task is actively running:
+On first launch, the app copies the bundled bridge into `~/Library/Application Support/TelegramCodexBridge/bin`, validates the backend and token, and prompts for missing configuration. Setup requires a workspace and at least one user or chat allowlist entry.
 
-- macOS: `caffeinate`
-- Linux: `systemd-inhibit`
+The app runtime and its `.env` are separate from the repository runtime. To inspect the app-managed service:
 
-That helps during long-running tasks, but it cannot wake a machine that is already asleep before a Telegram message arrives.
+```bash
+"$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" status
+```
 
-## Logging
+The LaunchAgent is `~/Library/LaunchAgents/com.telegramcodex.bridge.plist`. Both runtime choices use the same service label per user, so choose the root you intend to manage. Saving menu setup rewrites `.env` with the UI-supported settings; reapply any additional advanced keys afterward. See [docs/macos.md](docs/macos.md).
 
-The bridge now writes its main operational log through an internal rotating logger:
+## Optional local Whisper transcription
 
-- default path: `data/logs/bridge.stdout.log`
-- default size limit: `20 MB`
-- default retained backups: `5`
-- default level: `info`
+Voice and audio attachments can be transcribed locally. Install `ffmpeg` first; the installation helper also needs Python 3 with virtual-environment support and pip.
 
-Use `BRIDGE_LOG_LEVEL=debug` only when actively debugging. The default `info` mode avoids the noisy per-message development logs.
+```bash
+./bin/telegram-codex-bridge whisper-status
+./bin/telegram-codex-bridge install-whisper
+```
 
-## GitHub Actions
+The helper reuses a ready existing installation or creates `<runtime-root>/data/whisper-venv` and installs `openai-whisper`. The fixed transcription model is `base`; the first transcription may download it. The macOS app also provides status and installation controls.
 
-The repository now includes [build.yml](.github/workflows/build.yml), which will:
+Attachments are saved under `<workspace>/.telegram/inbox/<message-id>`; transcripts are saved under `<workspace>/.telegram/transcripts/<message-id>`. Images are forwarded as native Codex image inputs. Other files are supplied as saved paths with caption context, and successful voice/audio transcripts are added to the prompt. Transcription failure is logged and processing continues with the original attachments.
 
-- run `go test ./...`
-- build cross-platform release archives
-- build the macOS `.app` and `.dmg`
-- upload all of them as workflow artifacts
-- install UPX on the Linux build runner and pack Linux release binaries before archiving
-- automatically create a GitHub Release when you push a `v*` tag
-- attach the generated Linux/macOS archives and macOS installer assets to that Release
-- generate release notes from GitHub's native release notes API using [release.yml](.github/release.yml)
-- use [pull_request_template.md](.github/pull_request_template.md) to make changelogs and issue links more consistent
+## Logs and availability
 
-Binary and app versions are derived from the git tag at build time. GitHub Releases remains the source of truth for published versions, while release history also lives in [CHANGELOG.md](CHANGELOG.md).
+Default runtime files are `data/bridge.db`, `data/logs/bridge.stdout.log`, and the managed service's `data/logs/bridge.stderr.log`. The internal main logger rotates its file; the service stderr file is outside that rotation. Configure log location, verbosity, size, and retention with the `BRIDGE_LOG_*` names above.
 
-Release policy:
+Run one poller per bot token. Stop a foreground instance before switching to service management. Status checks can report a matching bridge process running outside the service manager.
 
-- Publish fixes under a new `v*` tag instead of reusing or force-updating an existing release tag.
-- Treat an already-published GitHub Release as immutable for normal maintenance.
-- If the release pipeline itself needs a fix, merge that fix first and cut the next patch version.
+The host must remain awake to receive Telegram messages. Sleep prevention uses `caffeinate` on macOS or `systemd-inhibit` on Linux during active tasks when enabled. It does not keep an idle host awake or wake one that is already sleeping.
 
-## Next milestones
+## CI and releases
 
-1. Approval prompts bridged into Telegram action buttons
-2. Topic deletion and archive lifecycle hardening
-3. Telegram entrypoints for Codex automations
-4. Telegram entrypoints for Codex multi-agent workflows
+[.github/workflows/build.yml](.github/workflows/build.yml) runs `go test ./...`, then builds four platform/architecture archives and macOS app ZIP/DMG artifacts. The Linux runner enables UPX packing. Pushing a `v*` tag publishes the assets to a GitHub Release with native generated notes configured by [.github/release.yml](.github/release.yml).
+
+Build scripts derive version and commit metadata from Git unless overridden. Publish fixes with a new version tag; follow the release policy in [CONTRIBUTING.md](CONTRIBUTING.md) and the history in [CHANGELOG.md](CHANGELOG.md).
+
+## Project layout and documentation
+
+| Path | Responsibility |
+| :--- | :--- |
+| `cmd/bridge/` | Unified serving and management entrypoint. |
+| `cmd/bridgectl/` | Legacy standalone control entrypoint; not included in packaged builds. |
+| `internal/app/` | Topic workers, orchestration, settings, workspaces, and media. |
+| `internal/codex/` | Provider routing, Codex app-server/CLI and Gemini CLI adapters. |
+| `internal/telegram/`, `internal/store/` | Bot transport and SQLite persistence. |
+| `internal/config/`, `internal/control/` | Configuration parsing and management commands. |
+| `internal/service/`, `internal/macos/` | Platform service managers and launchd helpers. |
+| `internal/transcribe/`, `internal/power/` | Local transcription and task sleep inhibitors. |
+| `internal/logging/`, `internal/buildinfo/`, `internal/i18n/` | Rotating logs, version metadata, and localization. |
+| `macos/BridgeStatusBarApp/`, `scripts/` | Swift menu bar app and packaging helpers. |
+
+- [Architecture](docs/architecture.md)
+- [Linux Guide](docs/linux.md)
+- [macOS Guide](docs/macos.md)
+- [Dependency Health](docs/dependency-health.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md)
