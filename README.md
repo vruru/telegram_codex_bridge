@@ -242,6 +242,7 @@ Build scripts derive version and commit metadata from Git unless overridden. Pub
 - [Architecture](docs/architecture.md)
 - [Linux Guide](docs/linux.md)
 - [macOS Guide](docs/macos.md)
+- [Deployment Process and Verified Status](docs/deployment-process.md)
 - [Dependency Health](docs/dependency-health.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
