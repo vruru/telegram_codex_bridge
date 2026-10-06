@@ -73,6 +73,8 @@ Development checks:
 ```bash
 go test ./...
 go vet ./...
+# On macOS, also check the menu setup configuration merge:
+bash scripts/test-macos-config.sh
 ```
 
 ## Environment variable names
@@ -195,7 +197,7 @@ The app runtime and its `.env` are separate from the repository runtime. To insp
 "$HOME/Library/Application Support/TelegramCodexBridge/bin/telegram-codex-bridge" status
 ```
 
-The LaunchAgent is `~/Library/LaunchAgents/com.telegramcodex.bridge.plist`. Both runtime choices use the same service label per user, so choose the root you intend to manage. Saving menu setup rewrites `.env` with the UI-supported settings; reapply any additional advanced keys afterward. See [docs/macos.md](docs/macos.md).
+The LaunchAgent is `~/Library/LaunchAgents/com.telegramcodex.bridge.plist`. Both runtime choices use the same service label per user, so choose the root you intend to manage. Saving menu setup merges the UI-supported settings into `.env`, preserving advanced keys, comments, and blank lines. See [docs/macos.md](docs/macos.md).
 
 ## Optional local Whisper transcription
 
@@ -244,5 +246,6 @@ Build scripts derive version and commit metadata from Git unless overridden. Pub
 - [macOS Guide](docs/macos.md)
 - [Deployment Process and Verified Status](docs/deployment-process.md)
 - [Dependency Health](docs/dependency-health.md)
+- [Offline release validation](docs/offline-release-validation.md)
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)

@@ -244,16 +244,16 @@ final class BridgeConfigStore {
     }
 
     func saveConfig(_ config: BridgeConfig) throws {
-        let lines = [
-            "TELEGRAM_BOT_TOKEN=\(config.botToken)",
-            "TELEGRAM_ALLOWED_USER_IDS=\(config.allowedUserIDs)",
-            "TELEGRAM_ALLOWED_CHAT_IDS=\(config.allowedChatIDs)",
-            "CODEX_WORKSPACE_ROOT=\(config.workspaceRoot)",
-            "CODEX_BIN=\(config.codexBinary)",
-            "BRIDGE_LANGUAGE=\(config.language)",
-            "CODEX_PERMISSION_MODE=\(config.permissionMode)",
+        let uiValues = [
+            "TELEGRAM_BOT_TOKEN": config.botToken,
+            "TELEGRAM_ALLOWED_USER_IDS": config.allowedUserIDs,
+            "TELEGRAM_ALLOWED_CHAT_IDS": config.allowedChatIDs,
+            "CODEX_WORKSPACE_ROOT": config.workspaceRoot,
+            "CODEX_BIN": config.codexBinary,
+            "BRIDGE_LANGUAGE": config.language,
+            "CODEX_PERMISSION_MODE": config.permissionMode,
         ]
-        try lines.joined(separator: "\n").appending("\n").write(toFile: envPath, atomically: true, encoding: .utf8)
+        try EnvFileMerger.merge(uiValues: uiValues, at: envPath)
     }
 
     private func syncBundledBinary(named name: String, to destination: String) throws {

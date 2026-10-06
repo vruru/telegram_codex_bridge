@@ -23,6 +23,7 @@ go build -ldflags "$GO_LDFLAGS" -o "$ROOT_DIR/bin/telegram-codex-bridge" ./cmd/b
 
 swiftc \
   "$ROOT_DIR/macos/BridgeStatusBarApp/main.swift" \
+  "$ROOT_DIR/macos/BridgeStatusBarApp/EnvFile.swift" \
   -o "$APP_EXECUTABLE"
 
 rm -rf "$ICONSET_DIR"

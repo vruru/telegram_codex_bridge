@@ -41,7 +41,7 @@ At launch, the app copies the embedded bridge into its runtime `bin/` directory 
 
 `TELEGRAM_CODEX_BRIDGE_ROOT` can override the Swift app's runtime root when supplied in the app's startup environment. The Go configuration loader does not read this variable.
 
-The app's configuration is separate from the repository's `.env`. Saving menu setup rewrites `.env` using only its UI-supported keys: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ALLOWED_CHAT_IDS`, `CODEX_WORKSPACE_ROOT`, `CODEX_BIN`, `BRIDGE_LANGUAGE`, and `CODEX_PERMISSION_MODE`. Reapply advanced settings such as provider or log overrides after saving setup if needed. The complete configuration name list is in [README](../README.md#environment-variable-names).
+The app's configuration is separate from the repository's `.env`. Saving menu setup updates all occurrences of its seven UI-supported keys: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ALLOWED_CHAT_IDS`, `CODEX_WORKSPACE_ROOT`, `CODEX_BIN`, `BRIDGE_LANGUAGE`, and `CODEX_PERMISSION_MODE`. Existing provider, log, and other advanced settings, comments, blank lines, and their ordering are retained. Missing UI keys are appended. A missing file is created; other read errors abort the save. Values containing line breaks are rejected, and the resulting file is atomically replaced with owner-only permissions. Run `bash scripts/test-macos-config.sh` to verify this merge without starting the app or a poller. The complete configuration name list is in [README](../README.md#environment-variable-names).
 
 ## launchd and command-line control
 
