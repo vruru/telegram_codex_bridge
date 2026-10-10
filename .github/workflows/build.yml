@@ -23,6 +23,10 @@ jobs:
           go-version-file: go.mod
       - name: Test
         run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Check reachable dependency vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
 
   release-archives:
     runs-on: ubuntu-latest

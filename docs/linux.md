@@ -4,7 +4,7 @@
 
 ## Source build and foreground run
 
-Go **1.26.6 or newer** is required by [go.mod](../go.mod). Run from the repository root:
+Go **1.26.9 or newer** is required by [go.mod](../go.mod). Run from the repository root:
 
 ```bash
 go mod download

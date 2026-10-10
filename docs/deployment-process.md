@@ -12,7 +12,7 @@ The pinned runtime source below is `a28d01a1b760171448fbe9303c135d8d5d1e548a`: G
 
 ## 1. Environment Preparation (Local Mac)
 
-Use Go **1.26.6 or newer**. macOS app builds also require Xcode Command Line Tools (`swiftc`, `swift`, `iconutil`). Install and authenticate the Codex CLI as the eventual service user, and provide a writable workspace and Telegram access. Keep one poller per bot token across all hosts.
+Use Go **1.26.9 or newer**. macOS app builds also require Xcode Command Line Tools (`swiftc`, `swift`, `iconutil`). Install and authenticate the Codex CLI as the eventual service user, and provide a writable workspace and Telegram access. Keep one poller per bot token across all hosts.
 
 Use a detached worktree to build exactly the requested source. Adjust `BRIDGE_REPO_ROOT` if your clone differs; choose an unused `BRIDGE_BUILD_ROOT` (do not overwrite an existing worktree). All source, testing, and Git operations stay on the local Mac; remote servers receive only runtime files.
 
