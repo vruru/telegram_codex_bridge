@@ -4,7 +4,7 @@ The repository provides the unified bridge binary and a native Swift menu bar ap
 
 ## Build and installation
 
-Source builds require Go **1.26.6 or newer** and Xcode Command Line Tools with `swiftc`, `swift`, and `iconutil`. Run from the repository root:
+Source builds require Go **1.26.9 or newer** and Xcode Command Line Tools with `swiftc`, `swift`, and `iconutil`. Run from the repository root:
 
 ```bash
 go mod download

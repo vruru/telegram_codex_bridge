@@ -37,7 +37,7 @@ See [docs/architecture.md](docs/architecture.md) for the components, persistence
 
 ## Prerequisites
 
-- Go **1.26.6 or newer** for source builds, as required by [go.mod](go.mod). The SQLite driver is pure Go; no separate SQLite installation is needed.
+- Go **1.26.9 or newer** for source builds, as required by [go.mod](go.mod). The SQLite driver is pure Go; no separate SQLite installation is needed.
 - A Telegram bot token and the user/group IDs you intend to allow.
 - An installed and authenticated Codex CLI for Codex operation. Gemini CLI must be separately installed and authenticated if used.
 - An existing, writable workspace root and network access to Telegram and the selected backend.
